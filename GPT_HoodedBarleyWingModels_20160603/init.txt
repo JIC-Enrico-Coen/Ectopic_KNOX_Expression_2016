@@ -1,0 +1,49 @@
+
+% In this section you may modify the mesh in any way whatsoever.
+    if (Steps(m)==0) && m.globalDynamicProps.doinit % First iteration
+        % Zero out a lot of stuff to create a blank slate.  
+        % If no morphogens are set in the GUI it may be useful to
+        % zero some arrays by uncommenting the following.
+        % m.morphogens(:) = 0;
+        % m.morphogenclamp(:) = 0;
+        % m.mgen_production(:) = 0;
+        % m.mgen_absorption(:) = 0;
+        % m.seams(:) = false;
+        % m.mgen_dilution(:) = false;
+
+        % Set up names for variant models.  Useful for running multiple models on a cluster.
+        m.userdata.ranges.modelname.range = { 'FINAL', 'WT' , 'POLARITY', 'GROWTH', 'WING', 'BKN3'};  % CLUSTER
+        m.userdata.ranges.modelname.index = 6;                       % CLUSTER
+    end
+    modelname = m.userdata.ranges.modelname.range{m.userdata.ranges.modelname.index};  % CLUSTER
+    disp(sprintf('\nRunning %s model %s\n',mfilename, modelname));
+    switch modelname
+        case 'MODEL1'
+            % Set up the parameters (e.g. mutations) for this model here.
+        case 'MODEL2'
+            % Set up the parameters (e.g. mutations) for this model here.
+        otherwise
+            % If you reach here, you probably forgot a case.
+    end
+    	
+    % More examples of code for all iterations.
+
+    % Set priorities for simultaneous plotting of multiple morphogens, if desired.
+    % m = leaf_mgen_plotpriority( m, {'MGEN1', 'MGEN2'}, [1,2], [0.5,0.75] );
+
+    % Set colour of polariser gradient arrows.
+    % m = leaf_plotoptions(m,'highgradcolor',[0,0,0],'lowgradcolor',[1,0,0]);
+
+    % setup a multiplot of the following morphogens
+    % m = leaf_plotoptions( m, 'morphogen', {'V_PROFILE1','V_PROFILE2','KAPAR','S_LEFTRIGHT'});
+
+    % to plot polariser on the A side and resultant areal growth rate on the B side:
+    % m = leaf_plotoptions( m, 'morphogenA', 'POLARISER', ...
+    %                      'outputquantityB', 'resultantgrowthrate', ...
+    %                      'outputaxesB', 'areal' );
+
+    % monitor properties of vertices must be done here - so that it reports newly equilibrated levels
+    % m=leaf_profile_monitor(m,... % essential
+    %         'REGIONLABELS',{'V_PROFILE1','V_PROFILE2'},... % essential
+    %         'MORPHOGENS',{'S_LEFTRIGHT','S_CENTRE'},... % optional  (one element per REGIONLABEL)
+    %         'VERTLABELS',false,'FigNum',1,'EXCEL',true,'MODELNAME',modelname); % optional (file in snapshots directory')

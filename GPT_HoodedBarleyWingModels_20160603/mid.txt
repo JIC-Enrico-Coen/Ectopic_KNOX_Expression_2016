@@ -1,0 +1,682 @@
+
+% In this section you may modify the mesh in any way that does not
+% alter the set of nodes.
+
+%% 
+
+
+    if (Steps(m)==0) && m.globalDynamicProps.doinit  % Initialisation code.
+        
+%Set up location of id factors
+
+%Set up iEDGE, which defines the outer edge of the lemma
+        
+        m= leaf_mgen_edge (m,'ID_EDGE', 1);
+        id_edge_p = m.morphogens (:, id_edge_i);
+        
+%Set up iPLUSORG, used to set up the poalrity field
+        id_plusorg_p =  (m.nodes (:,2) < 0.001).* id_edge_p;
+        
+%Set up iBASE, used to define the base of the lemma
+        id_base_p =  (m.nodes (:,2) < 0.001).* id_edge_p;
+
+%Set up iTIP, used to define the distal tip of the lemma, used to set up
+%the location of iMINUSORG
+        id_tip_p =   (m.nodes (:,1) > -0.005).*(m.nodes (:,1)<0.005).*(m.nodes (:,2)> 0.049) .* id_edge_p;  
+
+% Set up iCENTRE, used to produce sBKN3, circular region in the middle of
+% the distal end of the lemma
+               CENTRE_RADIUS = 0.003;
+               CENTRE_POSITION = [ 0, 0.03 ]; % the x, y co-ordinates of the position of the centre (due to its displacement from 0,0).
+               radii = sqrt( (m.nodes(:,1) - CENTRE_POSITION(1)).^2 + ...  % the x and y co-ordinates of the new centre point are subtracted from the x and y co-ordinates of the m.nodes positions used in the radii calculation  
+                      (m.nodes(:,2) - CENTRE_POSITION(2)).^2 );
+               id_centre_p(radii <= CENTRE_RADIUS) = 1;
+               id_centre_l = id_centre_p * id_centre_a;
+        
+% Set up iWING, used to define sDISSECT        
+         id_wing_p = ((m.nodes (:,1)<= -0.055).*(m.nodes (:,2) >= 0.015).*(m.nodes (:,2) <= 0.022).*id_edge_p)|...
+                    ((m.nodes (:,1)>= 0.055).*(m.nodes (:,2) >= 0.015).*(m.nodes (:,2) <= 0.022).*id_edge_p);
+                
+        
+%Fix the base to simulate the attachment to the base of the flower
+   m = leaf_fix_vertex( m, 'vertex', find(id_base_p==1), 'dfs', 'yz' );     
+    
+
+    end
+    
+   
+ % Define the gradient of sDISSECT, used to introduce more finite elements
+ % in specific areas
+
+if (realtime >= -50.0) &&(realtime <-50.0+dt); 
+         s_dissect_p = id_wing_p + id_centre_p + id_base_p; % sDISSECT is produced at iWING, iCENTRE and iBASE
+         m = leaf_mgen_conductivity( m, s_dissect_i, 0.00001 );  %specifies the diffusion rate of sDISSECT
+         m = leaf_mgen_absorption( m, s_dissect_i, 0.1 ); %specifies the degradation rate of sDISSECT
+         m.morphogenclamp( ((id_wing_p==1)|(id_centre_p==1)| id_base_p), s_dissect_i ) = 1; % fixes the level of sDISSECT at iWING, iCENTRE, iBASE
+ 
+%Define sTIP gradient, used to define the distrbution of iMINUSORG
+
+         s_tip_p = id_tip_p; % sTIP is produced at iTIP
+         m = leaf_mgen_conductivity( m, s_tip_i, 0.000001 ); % specifies the diffusion rate of sTIP  
+         m = leaf_mgen_absorption( m, s_tip_i, 0.1 );    % specifies the degradation rate of sTIP
+         m.morphogenclamp( ((id_tip_p==1)), s_tip_i ) = 1;   %fixes the level of sTIP at iTIP   
+
+%Define sPGRAD gradient, used to promote growth in the base of the lemma
+
+         s_pgrad_p = id_base_p - s_tip_l; % sPGRAD is produced at iBASE and removed by sTIP
+         m = leaf_mgen_conductivity( m, s_pgrad_i, 0.001 );  %specifies the diffusion rate of sPGRAD 
+         m = leaf_mgen_absorption( m, s_pgrad_i, 0.1 );    %specifies the degradation rate of sPGRAD
+         m.morphogenclamp( ((id_base_p==1)| (id_tip_p==1)), s_pgrad_i ) = 1;   % fixes the level of sGRAD at iBASE and iTIP  
+end
+
+%Define the location of iMINUSORG and the production of sDISSECT
+
+if (realtime >= -30.0) &&(realtime <-30.0+dt);
+   id_dissect_p = (s_dissect_l >= 0.3);% sDISSECT is produced where iDISSECT is
+   id_minusorg_p = s_tip_p;% iMINUSORG is defined by the gradient of sTIP
+end
+ 
+%Define gradient of POLARISER (POL) used to define the polarity field form
+%which kper and kpar are oriented
+
+ if (realtime >= -10.0) && (realtime < -10.0+dt);
+         P=id_plusorg_p; % POL is produced at iPLUSORG
+         m = leaf_mgen_conductivity( m, 'POLARISER', 0.0001 );  %specifies the diffusion rate of POL    
+         m = leaf_mgen_absorption( m, 'POLARISER', 0.1 ); %specifies the degradation rate of POL
+         m.morphogenclamp( ((id_plusorg_p==1)), polariser_i ) = 1;% fixes the level of POL at iPLUSORG
+ end  
+
+ %% 
+ 
+ 
+% Code for specific models.
+    switch modelname
+        case 'FINAL'  % Full hooded lemma model
+% Initial growth rates 
+if realtime >= 0;
+                 kapar_p(:) = 0.011.*pro(0.6, s_pgrad_l)...
+                                   .* inh(1.2, id_minusorg_l);  % Kpar is promoted by sPGRAD and inhibited by iMINUSORG
+                 kaper_p(:) = 0.005;   % uniform kper
+                 kbpar_p(:) = kapar_p;  
+                 kbper_p(:) = kaper_p;  % 
+                 knor_p(:)  = 0.01;  % uniform Knor
+end
+
+% Activate sBKN3 in the middle of the lemma
+ 
+  if (realtime >= 110) && (realtime < 110+dt);
+          s_bkn3_p = id_centre_p;  % sBKN3 is produced where iCENTRE is
+          m = leaf_mgen_conductivity( m, s_bkn3_i, 0.001 );  % defines conductivity of sBKN3
+          m = leaf_mgen_absorption( m, s_bkn3_i, 0.1 );    % defines degradartion rate of sBKN3
+          m.morphogenclamp( ((id_centre_p==1)), s_bkn3_i ) = 1; %fixes the value of sBKN3 where iCENTRE is
+  end
+  
+% Freeze gradient of sBKN3 
+  if realtime >= 116;
+         m = leaf_mgen_conductivity( m, s_bkn3_p, 0 );     
+         m = leaf_mgen_absorption( m, s_bkn3_p, 0 );  
+  end
+  
+% Reorganise polarity, making the middle of the sBKN3 region a new minus
+% organiser (centre of the new meristem)
+            
+ if (realtime >= 120)&& (realtime < 120+dt);
+          
+           P= id_plusorg_p - 0.001*(s_bkn3_l > 0.4);% POL is produced at iPLUSORG and removed at sBKN3
+           m = leaf_mgen_conductivity( m, 'POLARISER', 0.001 );      
+           m = leaf_mgen_absorption( m, 'POLARISER', 0.1 );
+           m.morphogenclamp( ((id_plusorg_p==1)), polariser_i ) = 0;
+           m.morphogenclamp( ((id_plusorg_p==1)| (id_minusorg_p >= 0.8 )| (s_bkn3_l > 0.4)), polariser_i ) = 1; % fixes the value of POL at iPLUSORG, iMINUSORG and where sBKN3 is high              
+ end
+
+% Introduce effect of sBKN3 on growth rates, promote growth in region of
+% meristem
+          
+if realtime >=125 ;         
+     
+                  kapar_p(:) = 0.012.*pro(0.01, s_pgrad_l)...
+                                    .* inh(1, id_minusorg_l)...
+                                    .* pro(0.01,(s_bkn3_l>=0.2));  % Kpar is promoted by sPGRAD and by high levels of sBKN3, inhibited by iMINUSORG
+                  kaper_p(:) = 0.006.*pro(1, (s_bkn3_l>=0.2))....
+                                    .*pro(1.5,s_pgrad_l);  %  Kper is promoted by sPGRAD and by high levels of sBKN3
+                  kbpar_p(:) = kapar_p;  % 
+                  kbper_p(:) = kaper_p;  % 
+                  knor_p(:)  = 0.01;  % Knor is constant
+end
+
+% Introduce iBOUNDARY proximally to the sBKN3 region
+
+if (realtime >= 150) &&(realtime <150+dt);
+   id_boundary_p = ((s_bkn3_l <0.3) & (s_bkn3_l >0.2)) .* (m.nodes (:,2) <= 0.3); %location of iBOUNDARY 
+end        
+
+% Activate iBOUNDARY as a plus organiser and reorganise polarity
+
+if (realtime >= 164) && (realtime < 164+dt);
+     P= id_plusorg_p + id_boundary_p ; % POL is produced at iPLUSORG and iBOUNDARY
+     m.morphogenclamp( ((id_plusorg_p==1)| (id_minusorg_p >= 0.8 )| (s_bkn3_l > 0.4)), polariser_i ) = 0; % ends old clamp
+     m.morphogenclamp (((id_plusorg_p==1)| (id_minusorg_p >= 0.8 )| (s_bkn3_l > 0.4) | (id_boundary_p ==1)), polariser_i ) =1;% new clamp fixes POL levels a iPLUSORG, iMINUSORG, iBOUNDARY and where sBKN3 is high
+    
+end
+
+% Remove the effect of sBKN3 on growth
+if realtime >=170 ;
+     
+                  kapar_p(:) = 0.011.*pro(1.3, s_pgrad_l)...
+                                    .* inh(1, id_minusorg_l);%
+                  kaper_p(:) = 0.002.*pro(5,s_pgrad_l);  % 
+                  kbpar_p(:) = kapar_p;  % 
+                  kbper_p(:) = kaper_p;  % 
+                  knor_p(:)  = 0.001;  % 
+end
+
+% Introduce iWINGTIP which produces sWING at the WING tip (convergence
+% point of polarity)
+if (realtime >= 238) && (realtime < 238+dt);
+    id_wingtip_p = ((m.nodes (:,2) >= 0.47).*(m.nodes (:,2) <= 0.52).*id_edge_p); %location of iWINGTIP
+    s_wing_p = id_wingtip_p; % sWING is produced at iWINGTIP
+    m = leaf_mgen_conductivity( m, s_wing_p, 0.008 );  %specifies the diffusion rate of sWING    
+    m = leaf_mgen_absorption( m, s_wing_p, 0.00001 );  %specified the degradation rate of sWING
+    m.morphogenclamp( (id_wingtip_p==1), s_wing_i ) = 1; % fixes the level of sWING at iWINGTIP
+    
+end
+
+% The effect of sWING on growth 
+if realtime >=240 ;
+     
+                  kapar_p(:) = 0.0019.*pro(1, s_pgrad_l)...
+                                     .* inh(1, id_minusorg_l)...
+                                     .*pro(30, (s_wing_l )) ...
+                                     .* inh(10, s_wing_l > 0.65);% Kpar is promoted by sGRAD, sWING and inhibited by iMINUSORG and where sWING is high (at the wing tip).This stops the wings becoming sharp
+                  kaper_p(:) = 0.0006 .*pro(5,s_pgrad_l);  % Kper is promoted by sPGRAD 
+                  kbpar_p(:) = kapar_p;  % 
+                  kbper_p(:) = kaper_p;  % 
+                  knor_p(:)  = 0.001;  % 
+end
+%Fix the gradient of sWING
+if realtime >= 242;
+           m = leaf_mgen_conductivity( m, s_wing_p, 0 );
+           m = leaf_mgen_absorption( m, s_wing_p, 0 );
+end
+
+%% 
+
+
+
+        case 'WT'  % wild-type lemma model, the same model as for Hooded with effects of sBKN3 and sWING removed
+            
+if realtime >= 0;
+
+                 kapar_p(:) = 0.011.*pro(0.6, s_pgrad_l)...
+                                   .* inh(1.2, id_minusorg_l);  % Kpar is promoted by sPGRAD and inhibited bu iMINUSORG
+                 kaper_p(:) = 0.005;  % Kper is constant
+                 kbpar_p(:) = kapar_p;  % 
+                 kbper_p(:) = kaper_p;  % 
+                 knor_p(:)  = 0.01;  % Knor is constant
+ end           
+            
+if realtime >=125 ;         
+     
+                  kapar_p(:) = 0.012.*pro(0.01, s_pgrad_l)...
+                                    .* inh(1, id_minusorg_l);  % 
+                  kaper_p(:) = 0.006.*pro(1.5,s_pgrad_l);  % Kper is promoted by sPGRAD
+                  kbpar_p(:) = kapar_p;  % 
+                  kbper_p(:) = kaper_p;  % 
+                  knor_p(:)  = 0.01;  % 
+end
+
+if realtime >=170 ;
+     
+                  kapar_p(:) = 0.011.*pro(1.3, s_pgrad_l)...
+                                    .* inh(1, id_minusorg_l);%
+                  kaper_p(:) = 0.002.*pro(5,s_pgrad_l);  %
+                  kbpar_p(:) = kapar_p;  % 
+                  kbper_p(:) = kaper_p;  % 
+                  knor_p(:)  = 0.001;  % 
+end
+
+if realtime >=240 ;
+     
+                  kapar_p(:) = 0.0019.*pro(1, s_pgrad_l)...
+                                     .* inh(1, id_minusorg_l);%
+                  kaper_p(:) = 0.0006 .*pro(5,s_pgrad_l);  % 
+                  kbpar_p(:) = kapar_p;  % 
+                  kbper_p(:) = kaper_p;  % 
+                  knor_p(:)  = 0.001;  % 
+end
+
+% 
+%% 
+
+        case 'POLARITY'  % hooded lemma model with just a polarity inversion, no change in growth rates in the margins
+
+if realtime >= 0;
+                 
+                 kapar_p(:) = 0.011.*pro(0.6, s_pgrad_l)...
+                                    .* inh(1.2, id_minus_l);  % Kper is promoted by sPGRAD and inhibited by iMINUSORG
+                 kaper_p(:) = 0.005;  % Kper is constant
+                 kbpar_p(:) = kapar_p;  % 
+                 kbper_p(:) = kaper_p;  % 
+                 knor_p(:)  = 0.01;  % Knor is constant
+end
+
+% Activate sBKN3 in the middle of the lemma
+ 
+if (realtime >= 110) && (realtime < 110+dt);
+          s_bkn3_p = id_centre_p; % sBKN3 is produced at iCENTRE
+          m = leaf_mgen_conductivity( m, s_bkn3_i, 0.001 );  %specifies the diffusion rate of sBKN3
+          m = leaf_mgen_absorption( m, s_bkn3_i, 0.1 );  %specifies the degradation rate of sBKN3
+          m.morphogenclamp( ((id_centre_p==1)), s_bkn3_i ) = 1; %fixes the level of sBKN3 at iCENTRE
+end
+
+% Freeze the gradient of sBKN3
+  if realtime >= 116;
+         m = leaf_mgen_conductivity( m, s_bkn3_p, 0 );     
+         m = leaf_mgen_absorption( m, s_bkn3_p, 0 );  
+  end
+
+% Reorganise polarity, making the middle of the sBKN3 region a new minus
+% organiser (centre of the new meristem)
+            
+ if (realtime >= 120)&& (realtime < 120+dt);
+          
+           P= id_plusorg_p - 0.001*(s_bkn3_l > 0.4);% POL is produced by iPLUSORG and removed where sBKN3 is high
+           m = leaf_mgen_conductivity( m, 'POLARISER', 0.001 );  %specifies the diffusion rate of POL    
+           m = leaf_mgen_absorption( m, 'POLARISER', 0.1 ); %specifies the degradation rate of POL
+           m.morphogenclamp( ((id_plusorg_p==1)), polariser_i ) = 0; %cancels the old POL clamp
+           m.morphogenclamp( ((id_plusorg_p==1)| (id_minusorg_p >= 0.8 )| (s_bkn3_l > 0.4)), polariser_i ) = 1;%fixes the level of POL at iPLUSORG, iMINUSORG and where sBKN3 is high            
+ end
+
+% Introduce the effect of sBKN3 on growth rates, promote growth in region of
+% meristem
+          
+ if realtime >=125 ;         
+     
+                  kapar_p(:) = 0.012.*pro(0.01, s_pgrad_l)...
+                                    .* inh(1, id_minusorg_l)...
+                                    .* pro(0.01,(s_bkn3_l>=0.2));  % Kpar is promoted by sPGRAD and where sBKN3 is high, and inhibted by iMINUSORG
+                  kaper_p(:) = 0.006.*pro(1, (s_bkn3_l>=0.2))...
+                                    .*pro(1.5,s_pgrad_l);  % Kper is promoted by sPGRAD and where sBKN3 is high
+                  kbpar_p(:) = kapar_p;  % 
+                  kbper_p(:) = kaper_p;  % 
+                  knor_p(:)  = 0.01;  % Knor is constant
+end
+
+% Introduce iBOUNDARY  proximally to the sBKN3 region
+
+if (realtime >= 150) &&(realtime <150+dt);
+   id_boundary_p = ((s_bkn3_l <0.3) & (s_bkn3_l >0.2)) .* (m.nodes (:,2) <= 0.3); % 
+   
+ end        
+
+% Activate iBOUNDARY as a plus organiser and reorganise polarity
+
+if (realtime >= 164) && (realtime < 164+dt);
+     P= id_plusorg_p + id_boundary_p ;% POL is produced at iPLUSORG and iBOUNDARY
+     m.morphogenclamp( ((id_plusorg_p==1)| (id_minusorg_p >= 0.8 )| (s_bkn3_l > 0.4)), polariser_i ) = 0; %cancels the old clamp
+     m.morphogenclamp (((id_plusorg_p==1)| (id_minusorg_p >= 0.8 )| (s_bkn3_l > 0.4) | (id_boundary_p ==1)), polariser_i ) =1; %fixes the level pf POL at iPLUSORG, iMINUSORG, iBOUNDARY and where sBKN3 is high
+    
+end
+
+% Remove the effect of sBKN3 on growth rates
+if realtime >=170 ;
+     
+                  kapar_p(:) = 0.011.*pro(1.3, s_pgrad_l)...
+                                    .* inh(1, id_minusorg_l);%
+                  kaper_p(:) = 0.002.*pro(5,s_pgrad_l);  % 
+                  kbpar_p(:) = kapar_p;  % 
+                  kbper_p(:) = kaper_p;  % 
+                  knor_p(:)  = 0.001;  % 
+end
+
+
+if realtime >=240 ;
+     
+                  kapar_p(:) = 0.0019.*pro(1, s_pgrad_l)...
+                                     .* inh(1, id_minusorg_l);%
+                  kaper_p(:) = 0.0008 .*pro(5,s_pgrad_l);  % 
+                  kbpar_p(:) = kapar_p;  % 
+                  kbper_p(:) = kaper_p;  % 
+                  knor_p(:)  = 0.001;  % 
+end
+
+%% 
+
+
+ case 'GROWTH' % The effect of enhancing growth rates in the lemma margin without a change in polarity orientation.
+
+if realtime >= 0;
+                 kapar_p(:) = 0.011.*pro(0.6, s_pgrad_l)...
+                                   .* inh(1.2, id_minusorg_l);  % Kpar is promoted by sPGRAD and inhibiited by iMINUSORG
+                 kaper_p(:) = 0.005;  % Kper is constant
+                 kbpar_p(:) = kapar_p;  % 
+                 kbper_p(:) = kaper_p;  % 
+                 knor_p(:)  = 0.01;  % Knor is constant
+end
+
+% Activate sBKN3 in the middle of the lemma
+ 
+  if (realtime >= 110) && (realtime < 110+dt);
+          s_bkn3_p = id_centre_p; %sBKN3 is produced at iCENTRE
+          m = leaf_mgen_conductivity( m, s_bkn3_i, 0.001 );  %specifies the diffusion rate of sBKN3
+          m = leaf_mgen_absorption( m, s_bkn3_i, 0.1 ); %specifies the degradation rate of sBKN3
+          m.morphogenclamp( ((id_centre_p==1)), s_bkn3_i ) = 1; % fixes the level of sBKN3 at iCENTRE
+  end
+  
+% Freeze the gradient of sBKN3 
+  if realtime >= 116;
+         m = leaf_mgen_conductivity( m, s_bkn3_p, 0 );     
+         m = leaf_mgen_absorption( m, s_bkn3_p, 0 );  
+  end
+  
+% Reorganise polarity, making the middle of the BKn3 region a new minus
+% organiser (centre of the new meristem)
+            
+ if (realtime >= 120)&& (realtime < 120+dt);
+          
+           P= id_plusorg_p - 0.001*(s_bkn3_l > 0.4);% POL is produced at iPLUSORG and removed weher sBKN3 is high
+           m = leaf_mgen_conductivity( m, 'POLARISER', 0.001 );  %specifies the diffusion rate of POL    
+           m = leaf_mgen_absorption( m, 'POLARISER', 0.1 );  %specifies the degradation rate of POL
+           m.morphogenclamp( ((id_plusorg_p==1)), polariser_i ) = 0; %cancels the old clamp
+           m.morphogenclamp( ((id_plusorg_p==1)| (id_minusorg_p >= 0.8 )| (s_bkn3_l > 0.4)), polariser_i ) = 1; %fixes the level of POL at iPLUSORG and iMINUSORG              
+ end
+
+% Introduce the effect of sBKN3 on growth rates, promotes growth in the region of
+% meristem
+          
+if realtime >=125 ;         
+     
+                  kapar_p(:) = 0.012.*pro(0.01, s_pgrad_l)...
+                                    .* inh(1, id_minusorg_l)...
+                                    .* pro(0.01,(s_bkn3_l>=0.2));  % Kpar is promoted by sPGRAD and weher sBKN3 is high, and inhibited by iMINUSORG
+                  kaper_p(:) = 0.006.*pro(1, (s_bkn3_l>=0.2))...
+                                    .*pro(1.5,s_pgrad_l);  % Kper is promoted by sPGRAD and where sBKN3 is high
+                  kbpar_p(:) = kapar_p;  % 
+                  kbper_p(:) = kaper_p;  % 
+                  knor_p(:)  = 0.01;  % 
+end
+
+
+
+% Remove the effect of sBKN3 on growth
+if realtime >=170 ;
+     
+                  kapar_p(:) = 0.011.*pro(1.3, s_pgrad_l)...
+                                    .* inh(1, id_minusorg_l);% 
+                  kaper_p(:) = 0.002.*pro(5,s_pgrad_l);  % 
+                  kbpar_p(:) = kapar_p;  % 
+                  kbper_p(:) = kaper_p;  % 
+                  knor_p(:)  = 0.001;  % 
+end
+
+% Introduce iWINGTIP which produces sWING at the tip of the wings (convergence
+% point of the polarity field) This is defined independent of the polarity
+% field (the position of iWINGTIP is approximately where the convergence
+% point is)
+if (realtime >= 238) && (realtime < 238+dt);
+    id_wingtip_p = ((m.nodes (:,2) >= 0.47).*(m.nodes (:,2) <= 0.52).*id_edge_p);% defines where iWINGTIP is (convergence point of poalrity field)
+    s_wing_p = id_wingtip_p; % sWING is produced by iWINGTIP
+    m = leaf_mgen_conductivity( m, s_wing_p, 0.008 );  %specifies the diffusion rate of sWING    
+    m = leaf_mgen_absorption( m, s_wing_p, 0.00001 ); %specifies the degradation rate of sWING
+    m.morphogenclamp( (id_wingtip_p==1), s_wing_i ) = 1; %fixes the level of sWING at iWINGTIP
+    
+end
+
+% The effect of sWING on growth (roughly isotropic effect- equally increase
+% kper and kpar)
+if realtime >=240 ;
+     
+                  kapar_p(:) = 0.0019.*pro(1, s_pgrad_l)...
+                                     .* inh(1, id_minusorg_l)...
+                                     .*pro(9.5, s_wing_l);% Kpar is promoted by sPGRAD and sWING and inhibited by iMINUSORG
+                  kaper_p(:) = 0.0006 .*pro(5,s_pgrad_l)...
+                                      .*pro(30, s_wing_l);  % Kper is promoted by sPGRAD and sWING
+                  kbpar_p(:) = kapar_p;  % 
+                  kbper_p(:) = kaper_p;  % 
+                  knor_p(:)  = 0.001;  % 
+end
+
+%Fix the gradient of sWING
+if realtime >= 242;
+           m = leaf_mgen_conductivity( m, s_wing_p, 0 );
+           m = leaf_mgen_absorption( m, s_wing_p, 0 );
+end
+
+%% 
+
+        case 'WING' % The final hooded lemma model with no inhibition of growth at the wing tip
+
+
+if realtime >= 0;
+                 kapar_p(:) = 0.011.*pro(0.6, s_pgrad_l)...
+                                   .* inh(1.2, id_minusorg_l);  % Kpar is promoted by sPGRAD and inhibited by iMINUSORG
+                 kaper_p(:) = 0.005;  % Kper is constant
+                 kbpar_p(:) = kapar_p;  % 
+                 kbper_p(:) = kaper_p;  % 
+                 knor_p(:)  = 0.01;  % Knor is constant
+end
+
+% Activate sBKN3 in the middle of the lemma
+ 
+  if (realtime >= 110) && (realtime < 110+dt);
+          s_bkn3_p = id_centre_p; % sBKN3 is produced at iCENTRE
+          m = leaf_mgen_conductivity( m, s_bkn3_i, 0.001 );  % specifies the diffusion rate of sBKN3
+          m = leaf_mgen_absorption( m, s_bkn3_i, 0.1 );  % specifies the degradation rate of sBKN3
+          m.morphogenclamp( ((id_centre_p==1)), s_bkn3_i ) = 1; %fixes the level of sBKN3 at iCENTRE
+  end
+  
+% Freeze gradient of sBKN3 
+  if realtime >= 116;
+         m = leaf_mgen_conductivity( m, s_bkn3_p, 0 );     
+         m = leaf_mgen_absorption( m, s_bkn3_p, 0 );  
+  end
+  
+% Reorganise polarity, making the middle of the sBKN3 region a new minus
+% organiser (centre of the new meristem)
+            
+ if (realtime >= 120)&& (realtime < 120+dt);
+          
+           P= id_plusorg_p - 0.001*(s_bkn3_l > 0.4);% POL is produced at iPLUSORG and removed where sBKN3 is high 
+           m = leaf_mgen_conductivity( m, 'POLARISER', 0.001 );  %specifies the diffusion rate of POL    
+           m = leaf_mgen_absorption( m, 'POLARISER', 0.1 );  %specifies the degradation rate of POL
+           m.morphogenclamp( ((id_plusorg_p==1)), polariser_i ) = 0; %cancels the old clamp
+           m.morphogenclamp( ((id_plusorg_p==1)| (id_minusorg_p >= 0.8 )| (s_bkn3_l > 0.4)), polariser_i ) = 1;  % fixes the level of POL at iPLUSORG, iMINUSORG and where sBKN3 is high              
+ end
+
+% Introduce effect of sBKN3 on growth rates, promoting growth in region of
+% meristem
+          
+if realtime >=125 ;         
+     
+                  kapar_p(:) = 0.012.*pro(0.01, s_pgrad_l)...
+                                    .* inh(1, id_minusorg_l)...
+                                    .* pro(0.01,(s_bkn3_l>=0.2));  % kpar is promoted by sPGRAD and where SBKN3 is high and is inhibited by iMINUSORG
+                  kaper_p(:) = 0.006.*pro(1, (s_bkn3_l>=0.2))...
+                                    .*pro(1.5,s_pgrad_l);  % Kper is promoted by sBKN3 and sPGRAD
+                  kbpar_p(:) = kapar_p;  % 
+                  kbper_p(:) = kaper_p;  % 
+                  knor_p(:)  = 0.01;  % 
+end
+
+% Introduce iBOUNDARY proximally to the sBKN3 region
+
+if (realtime >= 150) &&(realtime <150+dt);
+   id_boundary_p = ((s_bkn3_l <0.3) & (s_bkn3_l >0.2)) .* (m.nodes (:,2) <= 0.3); 
+end        
+
+% Activate iBOUNDARY region as a plus organiser and reorganise polarity
+
+if (realtime >= 164) && (realtime < 164+dt);
+     P= id_plusorg_p + id_boundary_p ; % POL is produced at iPLUSORG and iBOUNDARY
+     m.morphogenclamp( ((id_plusorg_p==1)| (id_minusorg_p >= 0.8 )| (s_bkn3_l > 0.4)), polariser_i ) = 0; %cancels old clamp
+     m.morphogenclamp (((id_plusorg_p==1)| (id_minusorg_p >= 0.8 )| (s_bkn3_l > 0.4) | (id_boundary_p ==1)), polariser_i ) =1; %fixes the level of POL at iPLUSORG, iMINUSORG, iBOUNDARY and where sBKN3 is high
+    
+end
+
+% Remove the effect of sBKN3 on growth
+if realtime >=170 ;
+     
+                  kapar_p(:) = 0.011.*pro(1.3, s_pgrad_l)...
+                                    .* inh(1, id_minusorg_l);%
+                  kaper_p(:) = 0.002.*pro(5,s_pgrad_l);  % 
+                  kbpar_p(:) = kapar_p;  % 
+                  kbper_p(:) = kaper_p;  % 
+                  knor_p(:)  = 0.001;  % 
+end
+
+% Introduce iWINGTIP which produces sWING at the tip of the wings (where
+% polarity converges (this is indpendent of the poalrity field, and is
+% based on an approximation of where the convergence point is)
+if (realtime >= 238) && (realtime < 238+dt);
+    id_wingtip_p = ((m.nodes (:,2) >= 0.47).*(m.nodes (:,2) <= 0.52).*id_edge_p);%
+    s_wing_p = id_wingtip_p; %sWING is produced at iWINGTIP
+    m = leaf_mgen_conductivity( m, s_wing_p, 0.008 );  %specifies the diffusion rate of sWING   
+    m = leaf_mgen_absorption( m, s_wing_p, 0.00001 ); % specifies the degradation rate of sWING
+    m.morphogenclamp( (id_wingtip_p==1), s_wing_i ) = 1; %fixes the values of sWING at iWINGTIP
+    
+end
+
+% The effect of sWING on growth 
+if realtime >=240 ;
+     
+                  kapar_p(:) = 0.0019.*pro(1, s_pgrad_l)...
+                                     .* inh(1, id_minusorg_l)...
+                                     .*pro(30, s_wing_l);% Kpar is promoted by sPGRAD and sWING and inhibited by iMINUSORG
+                  kaper_p(:) = 0.0006 .*pro(5,s_pgrad_l);  %  Kper is prmoted by sPGRAD
+                  kbpar_p(:) = kapar_p;  % 
+                  kbper_p(:) = kaper_p;  % 
+                  knor_p(:)  = 0.001;  % 
+end
+%fix the gradient of sWING
+if realtime >= 242;
+           m = leaf_mgen_conductivity( m, s_wing_p, 0 );
+           m = leaf_mgen_absorption( m, s_wing_p, 0 );
+end
+
+%% 
+            case 'BKN3' % Testing possible effects of the stripes of proximal BKn3 on wing development
+ 
+if realtime >= 0;
+                 kapar_p(:) = 0.011.*pro(0.6, s_pgrad_l)...
+                                    .* inh(1.2, id_minusorg_l);  % Kpar is promoted by sPGRAD and inhbited by iMINUSORG
+                 kaper_p(:) = 0.005;  % Kper is constant
+                 kbpar_p(:) = kapar_p;  % 
+                 kbper_p(:) = kaper_p;  % 
+                 knor_p(:)  = 0.01;  % Knor is constant
+end
+
+% Activate sBKN3 in the middle of the lemma
+ 
+  if (realtime >= 110) && (realtime < 110+dt);
+          s_bkn3_p = id_centre_p; %sBKN3 is produced at iCENTRE
+          m = leaf_mgen_conductivity( m, s_bkn3_i, 0.001 );  %specifies the diffusion rate of sBKN3
+          m = leaf_mgen_absorption( m, s_bkn3_i, 0.1 ); %specifies the degradation rate of sBKN3
+          m.morphogenclamp( ((id_centre_p==1)), s_bkn3_i ) = 1; %fixes the level of sBKN3 at iCENTRE
+  end
+  
+% Freeze gradient of sBKN3 
+  if realtime >= 116;
+         m = leaf_mgen_conductivity( m, s_bkn3_p, 0 );     
+         m = leaf_mgen_absorption( m, s_bkn3_p, 0 );  
+  end
+  
+% Reorganise polarity, making the middle of the sBKN3 region a new minus
+% organiser (centre of the new meristem)
+            
+ if (realtime >= 120)&& (realtime < 120+dt);
+          
+           P= id_plusorg_p - 0.001*(s_bkn3_l > 0.4);% POL is produced at iPLUSORG and removed weher sBKN3 is high
+           m = leaf_mgen_conductivity( m, 'POLARISER', 0.001 );  %specifies the diffusion rate of POL   
+           m = leaf_mgen_absorption( m, 'POLARISER', 0.1 ); %specifies the degradation rate of POL
+           m.morphogenclamp( ((id_plusorg_p==1)), polariser_i ) = 0; %cancels the old clamp
+           m.morphogenclamp( ((id_plusorg_p==1)| (id_minusorg_p >= 0.8 )| (s_bkn3_l > 0.4)), polariser_i ) = 1; % fixes the level of POL at iPLUSORG, iMINUSORg and where sBKN3 is high              
+ end
+
+% Introduce effect of sBKN3 on growth rates, promote growth in region of
+% meristem
+          
+if realtime >=125 ;         
+     
+                  kapar_p(:) = 0.012.*pro(0.01, s_pgrad_l)...
+                                    .* inh(1, id_minusorg_l)...
+                                    .* pro(0.01,(s_bkn3_l>=0.2));  % Kpar is promoted by sPGRAD and where sBKN3 is high anf inhibited by iMINUSORG
+                  kaper_p(:) = 0.006.*pro(1, (s_bkn3_l>=0.2))...
+                                    .*pro(1.5,s_pgrad_l);  % Kper is promoted by sPGRAD and where sBKN3 is high
+                  kbpar_p(:) = kapar_p;  % 
+                  kbper_p(:) = kaper_p;  % 
+                  knor_p(:)  = 0.01;  % 
+end
+
+% Introduce iBOUNDARY proximally to the sBKN3 region
+
+if (realtime >= 150) &&(realtime <150+dt);
+   id_boundary_p = ((s_bkn3_l <0.3) & (s_bkn3_l >0.2)) .* (m.nodes (:,2) <= 0.3); 
+end        
+
+% Activate the iBOUNDARY as a plus organiser and reorganise polarity
+
+if (realtime >= 164) && (realtime < 164+dt);
+     P= id_plusorg_p + id_boundary_p ; % POL is produced at iPLUSORG and iBOUNDARY
+     m.morphogenclamp( ((id_plusorg_p==1)| (id_minusorg_p >= 0.8 )| (s_bkn3_l > 0.4)), polariser_i ) = 0; %cancels the old clamp
+     m.morphogenclamp (((id_plusorg_p==1)| (id_minusorg_p >= 0.8 )| (s_bkn3_l > 0.4) | (id_boundary_p ==1)), polariser_i ) =1;% fixes the level of POL at iPLUSORG, iBOUNDARY, iMINUSORG and where sBKN3 is high
+    
+end
+
+% Remove the effect of sBKN3 on growth rates
+if realtime >=170 ;
+     
+                  kapar_p(:) = 0.011.*pro(1.3, s_pgrad_l)...
+                                    .* inh(1, id_minusorg_l);% Kpar is promoted by sPGRAD and inhibited by sMINUSORG
+                  kaper_p(:) = 0.002.*pro(5,s_pgrad_l);  % Kper is promoted by sPGRAD
+                  kbpar_p(:) = kapar_p;  % 
+                  kbper_p(:) = kaper_p;  % 
+                  knor_p(:)  = 0.001;  % 
+end
+
+% Introduce iWINGTIP which produces sWING at the wing tips (approximately where the convergence point is) and iSTRIPE which
+% replicates the proximal extension of the BKn3 expression domain
+if (realtime >= 238) && (realtime < 238+dt);
+    id_wingtip_p = ((m.nodes (:,2) >= 0.47).*(m.nodes (:,2) <= 0.52).*id_edge_p);% iWINGTIP is in the apprixmate position where the poalrity convergence point forms
+    s_wing_p = id_wingtip_p; %sWING is produced at iWINGTIP
+    m = leaf_mgen_conductivity( m, s_wing_p, 0.008 );  %specifies the diffusion rate of sWING   
+    m = leaf_mgen_absorption( m, s_wing_p, 0.00001 );  %specifies the degradation rate of sWING
+    m.morphogenclamp( (id_wingtip_p==1), s_wing_i ) = 1; %fixes the level of sWING at iWINGTIP
+    id_stripe_p =((m.nodes (:,1)>=0.2).*(m.nodes (:,1)<= 0.27).*(m.nodes (:,2) >= 0.5).*(m.nodes (:,2) <= 0.6))| ...
+                ((m.nodes (:,1)>=-0.27).*(m.nodes (:,1)<= -0.2).*(m.nodes (:,2) >= 0.5).*(m.nodes (:,2) <= 0.6)); %the position of the two stripes of BKn3 expression
+            
+  %Change Polarity with iSTRIPE 
+     P= id_plusorg_p + id_boundary_p + 0.05*id_stripe_p; % POL is produced by iPLUSORG, iBOUNDARY and weakly by iSTRIPE
+     m.morphogenclamp( ((id_plusorg_p==1)| (id_minusorg_p >= 0.8 )| (s_bkn3_l > 0.4)), polariser_i ) = 0;
+     m.morphogenclamp (((id_plusorg_p==1)| (id_minusorg_p >= 0.8 )| (s_bkn3_l > 0.4) | (id_boundary_p ==1) | (id_stripe_p ==1)), polariser_i ) =1;
+           
+end
+
+  
+% the effect of s_wing and id_stripe on growth to make the wings
+if realtime >=240 ;
+     
+                  kapar_p(:) = 0.0019.*pro(1, s_pgrad_l)...
+                                .* inh(1, id_minusorg_l)...
+                                .*pro(30, (s_wing_l )) ...
+                                .* inh(10, s_wing_l > 0.65);%...
+                               % .* pro (10, id_stripe_l) use this to
+                               % modulate growth rates with iSTRIPE
+                  kaper_p(:) = 0.0006 .*pro(5,s_pgrad_l);%...
+                                %.* pro(6, id_stripe_l) use this to
+                               % modulate growth rates with iSTRIPE  
+                  kbpar_p(:) = kapar_p;  % 
+                  kbper_p(:) = kaper_p;  % 
+                  knor_p(:)  = 0.001;  % 
+end
+%fix the gradient of s_wing
+if realtime >= 242;
+           m = leaf_mgen_conductivity( m, s_wing_p, 0 );
+           m = leaf_mgen_absorption( m, s_wing_p, 0 );
+end
+
+      %% 
+      
+
+        otherwise
+            % If this happens, maybe you forgot a model.
+    end
